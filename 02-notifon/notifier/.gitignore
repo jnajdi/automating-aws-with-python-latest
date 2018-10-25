@@ -18,12 +18,3 @@ var/
 
 # Serverless directories
 .serverless
-
-config.dev.json
-node_modules/
-
-python_automation_key.pem
-localPython/
-03-videolyzer/*.mp4
-*/*.jpg
-.idea/

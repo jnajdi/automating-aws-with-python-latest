@@ -1,0 +1,7 @@
+{
+  "videolyser": {
+    "profile": "local-machine",
+    "videos_bucket": "videolyzer-videos-2",
+    "videos_table": ""
+  }
+}

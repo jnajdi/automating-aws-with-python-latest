@@ -1,0 +1,126 @@
+
+service: videolyzer # NOTE: update this with your service name
+
+
+provider:
+  name: aws
+  runtime: python3.6
+  profile: ${file(../config.${self:provider.stage}.json):videolyser.profile}
+
+  iamRoleStatements:
+  - Effect: "Allow"
+    Action:
+    - "rekognition:*"
+    Resource: "*"
+  - Effect: "Allow"
+    Action:
+    - "s3:GetObject"
+    Resource:
+    - Fn::Join:
+      - ''
+      - - ${self:custom.videosBucketArn}
+        - '/*'
+    # Allow Lamdba function to get the role and pass it to rekognition
+  - Effect: "Allow"
+    Action:
+      - "iam:GetRole"
+      - "iam:PassRole"
+    Resource:
+      Fn::GetAtt:
+        - RekognitionSNSPublishRole
+        - Arn
+  - Effect: "Allow"
+    Action:
+      "dynamodb:PutItem"
+    Resource:
+      Fn::GetAtt:
+        - VideosTable
+        - Arn
+
+
+  environment:
+    REKOGNITION_SNS_TOPIC_ARN: ${self:custom.rekognitionSNSTopicArn}
+    REKOGNITION_ROLE_ARN:
+      Fn::GetAtt:
+      - RekognitionSNSPublishRole
+      - Arn
+    DYNAMODB_TABLE_NAME: ${self:custom.videosTableName}
+
+custom:
+  videosTableName: ${file(../config.${self:provider.stage}.json):videolyser.videos_table}
+  videosBucketArn:
+    # arn:aws:s3:::videolyzer-videos
+    Fn::Join:
+    - ':'
+    - - arn
+      - aws
+      - s3
+      - ''
+      - ''
+      - ${file(../config.${self:provider.stage}.json):videolyser.videos_bucket}
+  rekognitionSNSTopicArn:
+    # arn:aws:sns:region:account-id:topicname
+    Fn::Join:
+      - ':'
+      - - arn
+        - aws
+        - sns
+        - Ref: AWS::Region
+        - Ref: AWS::AccountId
+        - handleLabelDetectionTopic
+
+functions:
+  start-processing-video:
+    handler: handler.start_processing_video
+    events:
+      - s3:
+          bucket: ${file(../config.${self:provider.stage}.json):videolyser.videos_bucket}
+          event: s3:ObjectCreated:*
+          rules:
+            - suffix: mp4
+  handle-label-detection:
+    handler: handler.handle_label_detection
+    events:
+      - sns: handleLabelDetectionTopic
+
+
+resources:
+  Resources:
+    VideosTable:
+      Type: "AWS::DynamoDB::Table"
+      Properties:
+        AttributeDefinitions:
+          -
+            AttributeName: videoName
+            AttributeType: S
+        KeySchema:
+          -
+            AttributeName: videoName
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:custom.videosTableName}
+
+    # Cloud Formation Templates
+    RekognitionSNSPublishRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Service:
+                - "rekognition.amazonaws.com"
+              Action:
+              - "sts:AssumeRole"
+        Policies:
+          - PolicyName: RekognitionSNSPublishPolicy
+            PolicyDocument:
+             Version: "2012-10-17"
+             Statement:
+              - Effect: "Allow"
+                Action:
+                - "sns:Publish"
+                Resource: ${self:custom.rekognitionSNSTopicArn}
